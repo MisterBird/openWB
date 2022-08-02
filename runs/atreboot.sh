@@ -4,7 +4,7 @@ OPENWBBASEDIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 at_reboot() {
 	echo "atreboot.sh started"
-	(sleep 600; sudo kill "$$"; echo 0 > "$OPENWBBASEDIR/ramdisk/bootinprogress"; echo 0 > "$OPENWBBASEDIR/ramdisk/updateinprogress") &
+	(sleep 600; echo "checking for stalled atreboot after 10 minutes"; echo 0 > "$OPENWBBASEDIR/ramdisk/bootinprogress"; echo 0 > "$OPENWBBASEDIR/ramdisk/updateinprogress"; sudo kill "$$") &
 
 	# read openwb.conf
 	echo "loading config"
@@ -15,6 +15,7 @@ at_reboot() {
 	. "$OPENWBBASEDIR/runs/initRamdisk.sh"
 	. "$OPENWBBASEDIR/runs/updateConfig.sh"
 	. "$OPENWBBASEDIR/runs/rfid/rfidHelper.sh"
+	. "$OPENWBBASEDIR/runs/pushButtons/pushButtonsHelper.sh"
 
 	sleep 5
 	mkdir -p "$OPENWBBASEDIR/web/backup"
@@ -62,25 +63,14 @@ at_reboot() {
 		sudo python "$OPENWBBASEDIR/runs/triginit.py"
 	fi
 
-	# check if buttons are configured and restart daemon
-	pkill -f '^python.*/ladetaster.py'
-	if (( ladetaster == 1 )); then
-		echo "pushbuttons..."
-		if ! [ -x "$(command -v nmcli)" ]; then
-			if pgrep -f '^python.*/ladetaster.py' > /dev/null
-			then
-				echo "test" > /dev/null
-			else
-				sudo python "$OPENWBBASEDIR/runs/ladetaster.py" &
-			fi
-		fi
-	fi
+	# setup push buttons handler if needed
+	pushButtonsSetup "$ladetaster" 1
 
 	# check for rse and restart daemon
-	pkill -f '^python.*/rse.py'
+	sudo pkill -f '^python.*/rse.py'
 	if (( rseenabled == 1 )); then
 		echo "rse..."
-		if ! [ -x "$(command -v nmcli)" ]; then
+		if ! [ -x "$(command -v nmcli)" ]; then  # hack to prevent running the daemon on openwb standalone
 			sudo python "$OPENWBBASEDIR/runs/rse.py" &
 		fi
 	fi
@@ -97,8 +87,8 @@ at_reboot() {
 	fi
 
 	# restart our modbus server
-	pkill -f '^python.*/modbusserver.py' > /dev/null
 	echo "modbus server..."
+	sudo pkill -f '^python.*/modbusserver.py' > /dev/null
 	sudo python3 "$OPENWBBASEDIR/runs/modbusserver/modbusserver.py" &
 
 	# check if display is configured and setup timeout
@@ -118,8 +108,9 @@ at_reboot() {
 
 	# restart smarthomehandler
 	echo "smarthome handler..."
-	pkill -f '^python.*/smarthomehandler.py'
-	pkill -f '^python.*/smarthomemq.py'
+	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
+	sudo pkill -f '^python.*/smarthomehandler.py'
+	sudo pkill -f '^python.*/smarthomemq.py'
 	smartmq=$(<"$OPENWBBASEDIR/ramdisk/smartmq")
 	if (( smartmq == 0 )); then
 		echo "starting legacy smarthome handler"
@@ -131,7 +122,8 @@ at_reboot() {
 
 	# restart mqttsub handler
 	echo "mqtt handler..."
-	pkill -f '^python.*/mqttsub.py'
+	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
+	sudo pkill -f '^python.*/mqttsub.py'
 	python3 "$OPENWBBASEDIR/runs/mqttsub.py" &
 
 	# restart legacy run server
@@ -344,7 +336,8 @@ at_reboot() {
 	chmod 777 "$OPENWBBASEDIR/ramdisk/mqttlastregelungaktiv"
 
 	# check for slave config and restart handler
-	pkill -f '^python.*/isss.py'
+	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
+	sudo pkill -f '^python.*/isss.py'
 	if (( isss == 1 )); then
 		echo "isss..."
 		echo "$lastmanagement" > "$OPENWBBASEDIR/ramdisk/issslp2act"
@@ -359,7 +352,8 @@ at_reboot() {
 	fi
 
 	# check for socket system and start handler
-	pkill -f '^python.*/buchse.py'
+	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
+	sudo pkill -f '^python.*/buchse.py'
 	if [[ "$evsecon" == "buchse" ]]  && [[ "$isss" == "0" ]]; then
 		echo "socket..."
 		# ppbuchse is used in issss.py to detect "openWB Buchse"

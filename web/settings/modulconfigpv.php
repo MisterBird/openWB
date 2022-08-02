@@ -85,6 +85,7 @@
 										<option <?php if($pvwattmodulold == "wr_rct") echo "selected" ?> value="wr_rct">RCT</option>
 										<option <?php if($pvwattmodulold == "wr_rct2") echo "selected" ?> value="wr_rct2">RCT V.2</option>
 										<option <?php if($pvwattmodulold == "wr_siemens") echo "selected" ?> value="wr_siemens">Siemens Speicher</option>
+										<option <?php if($pvwattmodulold == "wr_solarmax") echo "selected" ?> value="wr_solarmax">Solarmax</option>
 										<option <?php if($pvwattmodulold == "wr_smashm") echo "selected" ?> value="wr_smashm">SMA Energy Meter</option>
 										<option <?php if($pvwattmodulold == "wr_tripower9000") echo "selected" ?> value="wr_tripower9000">SMA ModbusTCP WR</option>
 										<option <?php if($pvwattmodulold == "wr_smartme") echo "selected" ?> value="wr_smartme">SmartMe</option>
@@ -585,7 +586,7 @@
 										</label>
 									</div>
 									<span class="form-text small">
-										Diese Option aktivieren, wenn ein Tripower Smart Energy oder ein anderes Hybrid-System verbaut ist.
+										Diese Option aktivieren, wenn ein Tripower Smart Energy, Sunny Boy Smart Energy oder ein anderes Hybrid-System verbaut ist.
 									</span>
 								</div>
 							</div>
@@ -965,6 +966,9 @@
 									showSection('#pvip');
 									showSection('#pvsiemens');
 								}
+								if($('#pvwattmodul').val() == 'wr_solarmax') {
+									showSection('#pvip');
+								}
 								if($('#pvwattmodul').val() == 'wr_victron') {
 									showSection('#pvip');
 								}
@@ -1122,6 +1126,7 @@
 									</optgroup>
 									<optgroup label="andere Hersteller">
 										<option <?php if($pv2wattmodulold == "wr2_kostalpiko") echo "selected" ?> value="wr2_kostalpiko">Kostal Piko</option>
+										<option <?php if($pv2wattmodulold == "wr2_solarmax") echo "selected" ?> value="wr2_solarmax">Solarmax</option>
 										<option <?php if($pv2wattmodulold == "wr2_kostalpikovar2") echo "selected" ?> value="wr2_kostalpikovar2">Kostal Piko alt</option>
 										<option <?php if($pv2wattmodulold == "wr2_kostalsteca") echo "selected" ?> value="wr2_kostalsteca">Kostal Piko MP oder Steca Grid Coolcept</option>
 										<option <?php if($pv2wattmodulold == "wr2_smamodbus") echo "selected" ?> value="wr2_smamodbus">SMA Wechselrichter</option>
@@ -1323,6 +1328,17 @@
 								</div>
 							</div>
 						</div>
+						<div id="pv2kostalstecavariant" class="hide">
+							<div class="form-row mb-1">
+								<label for="wr2_kostal_steca_variant" class="col-md-4 col-form-label">Variante</label>
+								<div class="col">
+									<select name="wr2_kostal_steca_variant" id="wr2_kostal_steca_variant" class="form-control">
+										<option <?php if($wr2_kostal_steca_variantold == 0) echo "selected" ?> value="0">Kostal Piko MP oder Steca Grid Coolcept</option>
+										<option <?php if($wr2_kostal_steca_variantold == 1) echo "selected" ?> value="1">Kostal Piko MP (non-plus)</option>
+									</select>
+								</div>
+							</div>
+						</div>
 						<script>
 							function display_pv2wattmodul() {
 								hideSection('#pv2noconfig');
@@ -1337,6 +1353,7 @@
 								hideSection('#pv2piko2');
 								hideSection('#pv2solarlogdiv');
 								hideSection('#pv2smamodbus');
+								hideSection('#pv2kostalstecavariant');
 
 								if($('#pv2wattmodul').val() == 'wr2_kostalpikovar2') {
 									showSection('#pv2piko2');
@@ -1363,6 +1380,9 @@
 								if($('#pv2wattmodul').val() == 'wr2_solax') {
 									showSection('#pv2ipdiv');
 								}
+								if($('#pv2wattmodul').val() == 'wr2_solarmax') {
+									showSection('#pv2ipdiv');
+								}
 								if($('#pv2wattmodul').val() == 'wr2_sungrow') {
 									showSection('#pv2ipdiv');
 								}
@@ -1372,6 +1392,7 @@
 								}
 								if($('#pv2wattmodul').val() == 'wr2_kostalsteca') {
 									showSection('#pv2ipdiv');
+									showSection('#pv2kostalstecavariant');
 								}
 								if($('#pv2wattmodul').val() == 'wr2_victron') {
 									showSection('#pv2ipdiv');
