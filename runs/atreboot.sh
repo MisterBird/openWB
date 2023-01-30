@@ -1,8 +1,28 @@
 #!/bin/bash
 OPENWBBASEDIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+LOGFILE="/var/log/openWB.log"
+# always check for existing log file!
+if [[ ! -f $LOGFILE ]]; then
+	sudo touch $LOGFILE
+	sudo chmod 777 $LOGFILE
+fi
+
 . "$OPENWBBASEDIR/helperFunctions.sh"
 
 at_reboot() {
+
+	versionMatch() {
+		file=$1
+		target=$2
+		currentVersion=$(grep -o "openwb-version:[0-9]\+" "$file" | grep -o "[0-9]\+$")
+		installedVersion=$(grep -o "openwb-version:[0-9]\+" "$target" | grep -o "[0-9]\+$")
+		if (( currentVersion == installedVersion )); then
+			return 0
+		else
+			return 1
+		fi
+	}
+
 	echo "atreboot.sh started"
 	(sleep 600; echo "checking for stalled atreboot after 10 minutes"; echo 0 > "$OPENWBBASEDIR/ramdisk/bootinprogress"; echo 0 > "$OPENWBBASEDIR/ramdisk/updateinprogress"; sudo kill "$$") &
 
@@ -14,14 +34,31 @@ at_reboot() {
 	# no code will run here, functions need to be called
 	. "$OPENWBBASEDIR/runs/initRamdisk.sh"
 	. "$OPENWBBASEDIR/runs/updateConfig.sh"
-	. "$OPENWBBASEDIR/runs/rfid/rfidHelper.sh"
-	. "$OPENWBBASEDIR/runs/pushButtons/pushButtonsHelper.sh"
+
+	boot_config_source="$OPENWBBASEDIR/web/files/boot_config.txt"
+	boot_config_target="/boot/config.txt"
+	echo "checking init in $boot_config_target..."
+	if versionMatch "$boot_config_source" "$boot_config_target"; then
+		echo "already up to date"
+	else
+		echo "openwb section not found or outdated"
+		pattern_begin=$(grep -m 1 '#' "$boot_config_source")
+		pattern_end=$(grep '#' "$boot_config_source" | tail -n 1)
+		sudo sed -i "/$pattern_begin/,/$pattern_end/d" "$boot_config_target"
+		echo "adding init to $boot_config_target..."
+		sudo tee -a "$boot_config_target" <"$boot_config_source" >/dev/null
+		echo "done"
+		echo "new configuration active after next boot"
+	fi
 
 	sleep 5
 	mkdir -p "$OPENWBBASEDIR/web/backup"
 	touch "$OPENWBBASEDIR/web/backup/.donotdelete"
-	sudo chown -R www-data:www-data "$OPENWBBASEDIR/web/backup"
-	sudo chown -R www-data:www-data "$OPENWBBASEDIR/web/tools/upload"
+	# web/backup and web/tools/upload are used to (temporarily) store backup files for download and for restoring.
+	# files are created from PHP as user www-data, thus www-data needs write permissions.
+	sudo chown -R pi:www-data "$OPENWBBASEDIR/"{web/backup,web/tools/upload}
+	sudo chmod -R g+w "$OPENWBBASEDIR/"{web/backup,web/tools/upload}
+
 	sudo chmod 777 "$OPENWBBASEDIR/openwb.conf"
 	sudo chmod 777 "$OPENWBBASEDIR/smarthome.ini"
 	sudo chmod 777 "$OPENWBBASEDIR/ramdisk"
@@ -63,21 +100,6 @@ at_reboot() {
 		sudo python "$OPENWBBASEDIR/runs/triginit.py"
 	fi
 
-	# setup push buttons handler if needed
-	pushButtonsSetup "$ladetaster" 1
-
-	# check for rse and restart daemon
-	sudo pkill -f '^python.*/rse.py'
-	if (( rseenabled == 1 )); then
-		echo "rse..."
-		if ! [ -x "$(command -v nmcli)" ]; then  # hack to prevent running the daemon on openwb standalone
-			sudo python "$OPENWBBASEDIR/runs/rse.py" &
-		fi
-	fi
-
-	# setup rfid handler if needed
-	rfidSetup "$rfidakt" 1 "$rfidlist"
-
 	# check if tesla wall connector is configured and start daemon
 	if [[ $evsecon == twcmanager ]]; then
 		echo "twcmanager..."
@@ -86,49 +108,26 @@ at_reboot() {
 		fi
 	fi
 
-	# restart our modbus server
-	echo "modbus server..."
-	sudo pkill -f '^python.*/modbusserver.py' > /dev/null
-	sudo python3 "$OPENWBBASEDIR/runs/modbusserver/modbusserver.py" &
 
+	# display setup
+	echo "display..."
+	# remove old display config file
+	if [[ -f "/home/pi/.config/lxsession/LXDE-pi/lxdeyeah" ]]; then
+		rm "/home/pi/.config/lxsession/LXDE-pi/lxdeyeah"
+	fi
 	# check if display is configured and setup timeout
 	if (( displayaktiv == 1 )); then
-		echo "display..."
-		if ! grep -Fq "pinch" /home/pi/.config/lxsession/LXDE-pi/autostart
-		then
-			echo "not found"
-			echo "@xscreensaver -no-splash" > /home/pi/.config/lxsession/LXDE-pi/autostart
-			echo "@point-rpi" >> /home/pi/.config/lxsession/LXDE-pi/autostart
-			echo "@xset s 600" >> /home/pi/.config/lxsession/LXDE-pi/autostart
-			echo "@chromium-browser --incognito --disable-pinch --kiosk http://localhost/openWB/web/display.php" >> /home/pi/.config/lxsession/LXDE-pi/autostart
+		if versionMatch "$OPENWBBASEDIR/web/files/lxdeautostart" /home/pi/.config/lxsession/LXDE-pi/autostart; then
+			echo "already up to date"
+		else
+			echo "not found or outdated"
+			cp "$OPENWBBASEDIR/web/files/lxdeautostart" /home/pi/.config/lxsession/LXDE-pi/autostart
 		fi
 		echo "deleting browser cache"
 		rm -rf /home/pi/.cache/chromium
-	fi
-
-	# restart smarthomehandler
-	echo "smarthome handler..."
-	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
-	sudo pkill -f '^python.*/smarthomehandler.py'
-	sudo pkill -f '^python.*/smarthomemq.py'
-	smartmq=$(<"$OPENWBBASEDIR/ramdisk/smartmq")
-	if (( smartmq == 0 )); then
-		echo "starting legacy smarthome handler"
-		python3 "$OPENWBBASEDIR/runs/smarthomehandler.py" >> "$OPENWBBASEDIR/ramdisk/smarthome.log" 2>&1 &
 	else
-		echo "starting smarthomemq handler"
-		python3 "$OPENWBBASEDIR/runs/smarthomemq.py" >> "$RAMDISKDIR/smarthome.log" 2>&1 &
+		echo "not configured"
 	fi
-
-	# restart mqttsub handler
-	echo "mqtt handler..."
-	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
-	sudo pkill -f '^python.*/mqttsub.py'
-	python3 "$OPENWBBASEDIR/runs/mqttsub.py" &
-
-	# restart legacy run server
-	echo "legacy run server..."
-	bash "$OPENWBBASEDIR/packages/legacy_run_server.sh"
 
 	# check crontab for user pi
 	echo "crontab 1..."
@@ -320,6 +319,32 @@ at_reboot() {
 			ln -s "$VWIDMODULEDIR/_secrets.py" "$VWIDMODULEDIR/secrets.py"
 		fi
 	fi
+	#Prepare for secrets used in soc module soc_smarteq in Python
+	SMARTEQMODULEDIR="$OPENWBBASEDIR/modules/soc_smarteq"
+	if python3 -c "import secrets" &> /dev/null; then
+		echo 'soc_smarteq: python3 secrets installed...'
+		if [ -L "$SMARTEQMODULEDIR/secrets.py" ]; then
+			echo 'soc_smarteq: remove local python3 secrets.py...'
+			rm "$SMARTEQMODULEDIR/secrets.py"
+		fi
+	else
+		if [ ! -L "$SMARTEQMODULEDIR/secrets.py" ]; then
+			echo 'soc_smarteq: enable local python3 secrets.py...'
+			ln -s "$SMARTEQMODULEDIR/_secrets.py" "$SMARTEQMODULEDIR/secrets.py"
+		fi
+	fi
+	#Prepare for bs4 used in soc module smarteq in Python
+	if python3 -c "import bs4" &> /dev/null; then
+		echo 'bs4 installed...'
+	else
+		sudo pip3 install bs4
+	fi
+	#Prepare for pkce used in soc module smarteq in Python
+	if python3 -c "import pkce" &> /dev/null; then
+		echo 'pkce installed...'
+	else
+		sudo pip3 install pkce
+	fi
 	# update outdated urllib3 for Tesla Powerwall
 	pip3 install --upgrade urllib3
 
@@ -335,40 +360,7 @@ at_reboot() {
 	echo "" > "$OPENWBBASEDIR/ramdisk/mqttlastregelungaktiv"
 	chmod 777 "$OPENWBBASEDIR/ramdisk/mqttlastregelungaktiv"
 
-	# check for slave config and restart handler
-	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
-	sudo pkill -f '^python.*/isss.py'
-	if (( isss == 1 )); then
-		echo "isss..."
-		echo "$lastmanagement" > "$OPENWBBASEDIR/ramdisk/issslp2act"
-		python3 "$OPENWBBASEDIR/runs/isss.py" &
-		# second IP already set up !
-		ethstate=$(</sys/class/net/eth0/carrier)
-		if (( ethstate == 1 )); then
-			sudo ifconfig eth0:0 "$virtual_ip_eth0" netmask 255.255.255.0 down
-		else
-			sudo ifconfig wlan0:0 "$virtual_ip_wlan0" netmask 255.255.255.0 down
-		fi
-	fi
-
-	# check for socket system and start handler
-	# we need sudo to kill in case of an update from an older version where this script was not run as user `pi`:
-	sudo pkill -f '^python.*/buchse.py'
-	if [[ "$evsecon" == "buchse" ]]  && [[ "$isss" == "0" ]]; then
-		echo "socket..."
-		# ppbuchse is used in issss.py to detect "openWB Buchse"
-		if [ ! -f /home/pi/ppbuchse ]; then
-			echo "32" > /home/pi/ppbuchse
-		fi
-		python3 "$OPENWBBASEDIR/runs/buchse.py" &
-	fi
-
-	# update display configuration
-	echo "display update..."
-	if grep -Fq "@chromium-browser --incognito --disable-pinch --kiosk http://localhost/openWB/web/display.php" /home/pi/.config/lxsession/LXDE-pi/autostart
-	then
-		sed -i "s,@chromium-browser --incognito --disable-pinch --kiosk http://localhost/openWB/web/display.php,@chromium-browser --incognito --disable-pinch --overscroll-history-navigation=0 --kiosk http://localhost/openWB/web/display.php,g" /home/pi/.config/lxsession/LXDE-pi/autostart
-	fi
+	"$OPENWBBASEDIR/runs/services.sh" restart
 
 	# get local ip
 	ip route get 1 | awk '{print $7;exit}' > "$OPENWBBASEDIR/ramdisk/ipaddress"
@@ -417,7 +409,7 @@ at_reboot() {
 		echo "update electricity pricelist..."
 		echo "" > "$OPENWBBASEDIR/ramdisk/etprovidergraphlist"
 		mosquitto_pub -r -t openWB/global/ETProvider/modulePath -m "$etprovider"
-		"$OPENWBBASEDIR/modules/$etprovider/main.sh" > /var/log/openWB.log 2>&1 &
+		nohup "$OPENWBBASEDIR/modules/$etprovider/main.sh" >>"$LOGFILE" 2>&1 &
 	else
 		echo "not activated, skipping"
 		mosquitto_pub -r -t openWB/global/awattar/pricelist -m ""
