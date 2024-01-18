@@ -230,7 +230,7 @@ evsemodbuscheck() {
 		else
 			echo "echo" > /dev/null
 		fi
-		evsedinstat=$(sudo python3 runs/readmodbus.py $modbusevsesource $modbusevseid 1000 1)
+		((evsedinstat=$(sudo python3 runs/readmodbus.py $modbusevsesource $modbusevseid 1000 1) / 100))
 		sleep 1
 		if [[ $evsedinstat == "$llalt" ]]; then
 			openwbDebugLog "MAIN" 1 "LP1 Modbus $llalt korrekt"
