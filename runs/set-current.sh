@@ -231,23 +231,19 @@ function setChargingCurrentgoe () {
 				fi
 			fi
 		else
-			output=$(curl --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/status")
-
-			version=$(echo "$output" | jq -r '.fwv')	# get firmware version
-			majorVersion=${version%.*}      	# remove everything after a "."
-			majorVersion=${majorVersion%-*} 	# remove everything after a "-"
-			majorVersion=${majorVersion#0}  	# remove leading "0"
-
-			state=$(echo "$output" | jq -r '.alw')
-			if ((state == "0")) ; then
-				curl --silent --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/mqtt?payload=alw=1" > /dev/null
-			fi
-			oldgoecurrent=$(echo "$output" | jq -r '.amp')
-			if (( oldgoecurrent != current )) ; then
-				if ((majorVersion >= 40)) ; then
-					curl --silent --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/mqtt?payload=amx=$current" > /dev/null
-				else
-					curl --silent --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/mqtt?payload=amp=$current" > /dev/null
+			output=$(curl --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/api/status")
+			state=$(echo "$output" | jq -r '.frc')
+			if [[ $current -eq 0 ]]; then
+				if ((state == "0")) ; then
+					curl --silent --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/api/set?frc=1" > /dev/null
+				fi
+			else
+				if ((state == "1")) ; then
+					curl --silent --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/api/set?frc=0" > /dev/null
+				fi
+				oldgoecurrent=$(echo "$output" | jq -r '.amp')
+				if (( oldgoecurrent != current )) ; then
+					curl --silent --connect-timeout "$goetimeoutlp1" -s "http://$goeiplp1/api/set?amp=$current" > /dev/null
 				fi
 			fi
 		fi
